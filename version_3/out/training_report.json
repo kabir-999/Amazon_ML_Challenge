@@ -1,0 +1,30 @@
+{
+  "LightGBM": {
+    "val_F0.5": 0.9292,
+    "opt_threshold": 0.65,
+    "test_F0.5": 0.9313,
+    "test_AP": 0.9895
+  },
+  "XGBoost": {
+    "val_F0.5": 0.9282,
+    "opt_threshold": 0.7,
+    "test_F0.5": 0.9296,
+    "test_AP": 0.9898
+  },
+  "PyTorch_MLP": {
+    "val_F0.5": 0.9109,
+    "opt_threshold": 0.75,
+    "test_F0.5": 0.9145,
+    "test_AP": 0.9814
+  },
+  "Ensemble_3x": {
+    "val_F0.5": 0.9255,
+    "opt_threshold": 0.7,
+    "test_F0.5": 0.9292,
+    "test_AP": 0.9886
+  },
+  "Ensemble_test_F0.5_India": 0.9087,
+  "Ensemble_test_F0.5_US": 0.9436,
+  "Ensemble_pair_precision": 0.9786,
+  "Ensemble_pair_recall": 0.8592
+}
