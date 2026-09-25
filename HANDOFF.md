@@ -2,6 +2,33 @@
 
 Read this first if you are a new Claude/person picking up the project. Problem statement: `PS.txt` (also `student_resource/README.md`).
 
+## 0. CURRENT STATUS (read this first — updated after v1 leaderboard result and v2 diagnosis)
+
+- **v1 leaderboard score = 0.88.** Leaderboard top is ~0.980 (1st 0.9805, 2nd 0.9803, 3rd 0.9789; rank 11 = 0.967). **Goal: >= 0.96.** Our dev estimate (0.971) was misleading.
+- **Diagnosis (evidence, not guesses):**
+  1. Our v1 test output links only ~56% of test S2/S3 records to some S1 (avg 3.2 matches/S1 x 1.73M S1 = ~5.6M of 9.97M pool records), while in train ~74% of S2/S3 records are matched (and the test pool per S1 is 1.24x larger, so true matches/S1 in test is probably ~4.3). => **we miss roughly a quarter of the true matches on test (recall problem, precision looks fine).**
+  2. **Blocking recall collapses at real scale:** on the full-density train run (883k India S1 vs the full 4.1M India pool) India pair recall was **88.2%** (dev-subset: 95.9%). Recall ceiling caps the score no matter how good the classifier is. (US at full density not measured yet.)
+  3. Competition features (rank/gap among S1s competing for the same S2/S3 record) were computed with 300k S1 in dev vs 1.7M S1 in test -> distribution shift, model likely under-scores true pairs on test.
+  4. France was eyeballed (12 random S1 with predictions): matches look correct (Rue/R./Av normalised fine, accents ok); not the main problem.
+- **v2 state (nothing trained yet):**
+  - `version_2/src/` = v1 code + `prep_trainfull.py` (ALL 2.2M train S1 vs FULL train pool, per country) + `features_v2.py` (richer context + stage-2 probability-context features) + `common_v2.py` + `train_v2.py` (stage-1 OOF LightGBM 4 folds -> stage-2 LGB+XGB+MLP ensemble, threshold tuned at full density) + `predict_v2.py` (test inference).
+  - `version_2/data/trainfull/` already holds normalised data for India and US, and India's blocking output (`India_cand.parquet`, `India_F.npy`, `India_y.npy`, 32.4M pairs, 36.7/S1). US blocking was NOT finished (killed). If the data folder is missing on your machine, regenerate: `python prep_trainfull.py` then `python run_pipeline_country.py trainfull India|US` (~12 min per country blocking+features on M4 Air).
+  - `train_v2.py` currently: SAMP=0.2, K=4 folds, 700 trees. Not run.
+
+### NEXT STEP (do this before training anything): fix blocking recall at full density
+Run on a 30k-S1 sample of `trainfull` India (pool = full 4.1M) and measure pair recall for variants, then pick the best and re-run blocking for India+US(+test):
+1. Per-channel top-K larger (15 -> 40) and `max_cands` (40 -> 80..100); check recall@rank (40/60/100) of the merged ranking.
+2. Larger df caps in `blocking.CHANNELS` (currently addr 0.02/1500/20000, nchar 0.01/1200/15000, nword 0.01/800/10000 = fraction/floor/cap of documents); tokens above the cap are dropped from the index, which removes big-city and common-street tokens in a 4-5M pool.
+3. Add exact-key channels (hash join, no cosine): (house number + first street token + city token), (ZIP/PIN + house number), (name nospace prefix 8 chars + state). Use for records whose addresses are short/reordered.
+4. Inspect ~15 missed true pairs (what is missing: empty address? non-Latin name + thin address? number typo?) to design extra channels. Known hard cases: S2/S3 with Indic-script name and only "city, house-no" address; truncated address; digit-drop typos in house numbers ("5216" vs "216").
+Target: blocking recall >= 97% on India and US at full density with <= ~60 candidates/S1. Then train v2 (`python train_v2.py`, ~hours on M4 Air; much faster on a bigger GPU/RAM box), retune threshold, run `predict_v2.py France US India`, merge per-country parts, validate with `student_resource/utils/validate_submission.py`, put `matching_results.tsv` + code zip in `version_2/upload/`.
+Sanity checks after predicting test: fraction of S2/S3 test records assigned should be ~70%+ (v1 was 56%), avg matches/S1 ~4, singleton rate ~5%.
+
+Folder convention: each new training run = new `version_<n>/` with `src data out upload`; final `matching_results.tsv` + `code.zip` go in `version_<n>/upload/`.
+Do NOT add Claude as git co-author/collaborator (user preference); commits are authored by kabir-999 only.
+
+---
+
 ## 1. Task in one paragraph
 Link records of Source 1 (clean reference, S1) to matching records in noisy Source 2 / Source 3 (S2/S3). Output per S1 entity: comma-separated S2/S3 ids (empty = singleton). Metric: **macro F0.5 over S1 entities**, singletons count (empty correct = 1.0, any wrong match on a singleton = 0). Train has US + India with labels; **test adds France (unseen, no labels)**. Rules: no external data/APIs, final model MIT/Apache and <= 8B params. Files are TSV.
 
@@ -32,18 +59,18 @@ Dev data: 300k random train S1 entities + all their matches + proportional orpha
 | **Ensemble (submitted)** | **0.9707** |
 US 0.978, India 0.960; pair precision 0.991, recall 0.940. Blocking pair recall: US 98.7%, India 95.9%.
 
-### Real leaderboard score: **0.88** (vs 0.971 estimated) — the gap is the problem to solve.
+### Real leaderboard score: **0.88** (vs 0.971 estimated) — see section 0 for the diagnosis (blocking recall + density shift).
 Test prediction stats: singleton rate US 3.9% / India 6.6% / France 7.5% (train truth 5.6%); avg matches/S1 3.37 / 3.18 / 3.03 (train 3.46). Test candidates: 61.3M pairs, 35.4/S1.
 
 Submission files: `version_1/upload`-equivalent = `upload/matching_results.tsv` and `upload/code.zip`; full package `Broke_Code_submission.zip` (includes `candidate_pairs.tsv`, docs). Validator passes (`student_resource/utils/validate_submission.py`, also with `--check-ids`).
 
-## 4. Why we think 0.88 < 0.97 (hypotheses, unverified)
+## 4. Why 0.88 < 0.97 (initial hypotheses; superseded by section 0 diagnosis)
 1. **Density shift**: dev pool 6x smaller than test -> far fewer look-alike distractors; threshold 0.75 tuned on it is probably too loose; competition features (S1s per S2/S3 record) were computed with only 300k S1s, test has all 1.7M.
 2. **France**: unseen, ~15% of test S1; only 85% of France S1 had a strong top address match (US 94%); French suffixes/address terms only partly handled.
 3. **India blocking recall** may be lower at full scale.
 Which one dominates is unknown — the leaderboard only gives one number.
 
-## 5. Next iteration — version_2 plan (do this on the bigger machine)
+## 5. Original version_2 plan (still valid AFTER the blocking fix in section 0)
 Folder convention: every new training run gets its own `version_<n>/` with `src/ data/ out/ upload/`; the final `matching_results.tsv` + `code.zip` for that iteration go in `version_<n>/upload/`. `version_2/src/` already holds a copy of v1 code plus `prep_trainfull.py` (nothing trained yet, `version_2/data` empty).
 
 **Step 1 — test-density training data (most important).** Use ALL 2.2M train S1 against the FULL train S2/S3 pool (`prep_trainfull.py` does the normalisation into `data/trainfull/<country>_{s1n,pooln}.parquet` + `gt.parquet`; then `run_pipeline_country.py trainfull US|India`, which computes candidates, labels `y`, and the fuzzy-feature memmap). This makes candidate counts, chains and competition identical in nature to the test run. Expect ~79M pairs; memmap features ~9 GB disk; ~1 h+ on the M4 Air, much less with more RAM/cores. Train on pairs of a subset of S1 (e.g. 40–50%) but compute competition context over all of them; assemble features by chunk and keep only chosen S1 rows to bound memory.
