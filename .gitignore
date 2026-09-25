@@ -1,0 +1,11 @@
+# data, caches, large outputs, archives
+student_resource/dataset/
+version_*/data/
+*.tsv
+*.zip
+*.npy
+*.parquet
+__pycache__/
+.DS_Store
+*.log
+upload/

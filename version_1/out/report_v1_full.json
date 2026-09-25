@@ -1,0 +1,34 @@
+{
+ "lightgbm": {
+  "val_f05": 0.9701,
+  "thr": 0.75,
+  "test_f05": 0.9696,
+  "test_f05_no_assign": 0.9693,
+  "pair_AP_test": 0.9979
+ },
+ "xgboost": {
+  "val_f05": 0.9719,
+  "thr": 0.75,
+  "test_f05": 0.9713,
+  "test_f05_no_assign": 0.971,
+  "pair_AP_test": 0.9988
+ },
+ "mlp": {
+  "val_f05": 0.9682,
+  "thr": 0.75,
+  "test_f05": 0.9679,
+  "test_f05_no_assign": 0.9676,
+  "pair_AP_test": 0.9984
+ },
+ "ensemble": {
+  "val_f05": 0.9708,
+  "thr": 0.75,
+  "test_f05": 0.9707,
+  "test_f05_no_assign": 0.9703,
+  "pair_AP_test": 0.9987
+ },
+ "ensemble_India": 0.96,
+ "ensemble_US": 0.9777,
+ "ensemble_pair_precision": 0.9913,
+ "ensemble_pair_recall": 0.94
+}

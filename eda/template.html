@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Entity Resolution EDA</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--ink:#1c2233;--mute:#6b7390;--line:#e6e9f2;--c1:#4f6bed;--c2:#f0813f;--c3:#22a884;--c4:#b05fd6}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1220;--card:#181c2f;--ink:#e8ebf8;--mute:#9199b8;--line:#272c46}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,Inter,Segoe UI,sans-serif}
+header{padding:56px 24px 36px;text-align:center;background:linear-gradient(135deg,#4f6bed,#b05fd6);color:#fff}
+header h1{margin:0 0 8px;font-size:34px;letter-spacing:-.5px}header p{margin:0;opacity:.9}
+main{max-width:1080px;margin:0 auto;padding:24px 16px 80px}
+nav{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);text-align:center;padding:10px;font-size:14px}
+nav a{color:var(--mute);text-decoration:none;margin:0 10px}nav a:hover{color:var(--c1)}
+h2{margin:44px 0 6px;font-size:22px}.sub{color:var(--mute);margin:0 0 16px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+.kpi b{display:block;font-size:28px;letter-spacing:-.5px}.kpi span{color:var(--mute);font-size:13px}
+.card h3{margin:0 0 10px;font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}th{color:var(--mute);font-weight:600}
+.bar{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px}.bar i{display:block;height:14px;border-radius:4px;background:var(--c1)}
+.bar .l{width:110px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar .v{color:var(--mute);font-size:12px}
+.insight{border-left:4px solid var(--c2);background:var(--card);border-radius:8px;padding:12px 16px;margin:10px 0;border:1px solid var(--line);border-left:4px solid var(--c2)}
+.ex{font-size:13px}.ex div{padding:5px 0;border-bottom:1px dashed var(--line)}.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;color:#fff;margin-right:6px}
+.s1{background:var(--c1)}.s2{background:var(--c2)}.s3{background:var(--c3)}
+svg text{fill:var(--mute);font-size:11px}
+.legend span{margin-right:14px;font-size:12px;color:var(--mute)}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+</style></head><body>
+<header><h1>Business Entity Resolution — EDA</h1><p>Train · Validation · Test across three sources · US, India &amp; France</p></header>
+<nav><a href="#overview">Overview</a><a href="#quality">Data quality</a><a href="#noise">Noise</a><a href="#labels">Ground truth</a><a href="#pairs">Matched pairs</a><a href="#test">Test shift</a><a href="#takeaways">Takeaways</a></nav>
+<main id="app"></main>
+<script>
+const D=__DATA__;
+const S=D.stats, C=["var(--c1)","var(--c2)","var(--c3)","var(--c4)"];
+const fmt=n=>n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e3?(n/1e3).toFixed(0)+"k":""+n, pct=x=>(x*100).toFixed(1)+"%";
+const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const app=document.getElementById("app");
+const add=h=>app.insertAdjacentHTML("beforeend",h);
+function bars(obj,color,fmtv=fmt,max){const m=max||Math.max(...Object.values(obj));return Object.entries(obj).map(([k,v])=>`<div class="bar"><span class="l" title="${esc(k)}">${esc(k)}</span><i style="width:${Math.max(2,v/m*100)}%;background:${color}"></i><span class="v">${fmtv(v)}</span></div>`).join("")}
+function hist(series,labels,names){ // grouped normalized column chart
+  const W=480,H=170,p=22,n=labels.length,g=series.length;const bw=(W-p*2)/n;
+  const tot=series.map(s=>s.reduce((a,b)=>a+b,0));const mx=Math.max(...series.map((s,i)=>Math.max(...s.map(v=>v/tot[i]))));
+  let o=`<svg viewBox="0 0 ${W} ${H}" width="100%">`;
+  series.forEach((s,i)=>s.forEach((v,j)=>{const h=(v/tot[i])/mx*(H-p*2);o+=`<rect x="${p+j*bw+i*(bw-4)/g}" y="${H-p-h}" width="${(bw-4)/g-1}" height="${h}" rx="2" fill="${C[i]}"><title>${names[i]} ${labels[j]}: ${pct(v/tot[i])}</title></rect>`}));
+  labels.forEach((l,j)=>{if(j%Math.ceil(n/8)==0)o+=`<text x="${p+j*bw}" y="${H-6}">${l}</text>`});
+  return o+`</svg><div class="legend">${names.map((x,i)=>`<span><i style="background:${C[i]}"></i>${x}</span>`).join("")}</div>`}
+const rangeLab=(a,st,cap)=>a.map((_,i)=>i*st+(i==a.length-1?"+":""));
+const keys=[["train_s1","Train S1"],["train_s2","Train S2"],["train_s3","Train S3"],["test_s1","Test S1"],["test_s2","Test S2"],["test_s3","Test S3"]];
+
+// overview
+const tr=["train_s1","train_s2","train_s3"].reduce((a,k)=>a+S[k].rows,0), te=["test_s1","test_s2","test_s3"].reduce((a,k)=>a+S[k].rows,0);
+add(`<section id="overview"><h2>Overview</h2><p class="sub">Source 1 is the deduplicated reference; Sources 2 and 3 are noisy fragments to link back to it. No validation file is shipped — the <b>validation</b> split here is a random 10% of train S1 entities (seed 42) with their matches.</p>
+<div class="grid">
+<div class="card kpi"><b>${fmt(tr)}</b><span>train records (${fmt(S.train_s1.rows)} / ${fmt(S.train_s2.rows)} / ${fmt(S.train_s3.rows)})</span></div>
+<div class="card kpi"><b>${fmt(D.gt.val.n_s1)}</b><span>validation S1 entities (10% of train)</span></div>
+<div class="card kpi"><b>${fmt(te)}</b><span>test records (${fmt(S.test_s1.rows)} / ${fmt(S.test_s2.rows)} / ${fmt(S.test_s3.rows)})</span></div>
+<div class="card kpi"><b>${pct(D.gt.all.singleton_pct)}</b><span>S1 entities with no match (train)</span></div>
+<div class="card kpi"><b>${D.gt.all.avg_matches.toFixed(2)}</b><span>avg matches per S1 entity</span></div>
+<div class="card kpi"><b>+France</b><span>unseen country in test (${pct(S.test_s1.countries.France/S.test_s1.rows)} of S1)</span></div></div>
+<div class="card" style="margin-top:16px"><table><tr><th>Split · Source</th><th>Rows</th>${["US","India","France"].map(c=>`<th>${c}</th>`).join("")}</tr>
+${keys.map(([k,n])=>`<tr><td>${n}</td><td>${fmt(S[k].rows)}</td>${["US","India","France"].map(c=>`<td>${S[k].countries[c]?pct(S[k].countries[c]/S[k].rows):"—"}</td>`).join("")}</tr>`).join("")}
+<tr><td>Val S1</td><td>${fmt(S.val_s1.rows)}</td>${["US","India","France"].map(c=>`<td>${S.val_s1.countries[c]?pct(S.val_s1.countries[c]/S.val_s1.rows):"—"}</td>`).join("")}</tr></table></div></section>`);
+
+// data quality
+const qrows=[["Missing address","missing_addr"],["Non‑ASCII names","non_ascii_name"],["Devanagari names","devanagari_name"],["Accented (Latin) names","accent_name"],["ALL‑CAPS names","all_upper_name"],["ALL‑CAPS addresses","upper_addr"],["Name looks like a URL","url_name"],["Junk symbol prefix","junk_prefix"],["Has 6‑digit PIN","pin_addr"],["Has 5‑digit ZIP","zip_addr"],["Landmark (near/opp/behind)","near_landmark"],["Repeated name in file","dup_name_pct"]];
+add(`<section id="quality"><h2>Data quality by source</h2><p class="sub">Source 1 is clean; noise is injected into S2 and S3, differently in each.</p>
+<div class="card"><table><tr><th></th>${keys.map(k=>`<th>${k[1]}</th>`).join("")}<th>Val S1</th></tr>
+${qrows.map(([n,k])=>`<tr><td>${n}</td>${[...keys.map(x=>x[0]),"val_s1"].map(x=>{const v=S[x][k];return `<td style="background:rgba(79,107,237,${Math.min(.35,v*.9)})">${pct(v)}</td>`}).join("")}</tr>`).join("")}</table></div>
+<div class="grid" style="margin-top:16px">
+<div class="card"><h3>Name length (chars) — train</h3>${hist(["train_s1","train_s2","train_s3"].map(k=>S[k].name_len_hist),rangeLab(S.train_s1.name_len_hist,5),["S1","S2","S3"])}</div>
+<div class="card"><h3>Address length (chars) — train</h3>${hist(["train_s1","train_s2","train_s3"].map(k=>S[k].addr_len_hist),rangeLab(S.train_s1.addr_len_hist,10),["S1","S2","S3"])}</div></div></section>`);
+
+// noise
+const lg=["inc","llc","ltd","limited","corp","corporation","pvt","private","llp","co","company"];
+add(`<section id="noise"><h2>Noise patterns</h2><p class="sub">Legal‑suffix tokens appear in both full and abbreviated form (Ltd/Limited, Pvt/Private, Corp/Corporation), so they must be normalised.</p>
+<div class="grid"><div class="card"><h3>Legal suffix tokens — train S2</h3>${bars(Object.fromEntries(lg.map(k=>[k,S.train_s2.legal[k]])),"var(--c2)")}</div>
+<div class="card"><h3>Legal suffix tokens — train S1</h3>${bars(Object.fromEntries(lg.map(k=>[k,S.train_s1.legal[k]])),"var(--c1)")}</div>
+<div class="card"><h3>Top address regions — train S1</h3>${bars(S.train_s1.top_regions,"var(--c3)")}</div>
+<div class="card"><h3>Most common name tokens — train S1</h3>${bars(S.train_s1.top_tokens,"var(--c4)")}</div></div>
+<h3 style="margin-top:24px">Sample raw rows</h3><div class="grid">${["train_s1","train_s2","train_s3"].map((k,i)=>`<div class="card ex"><h3>${keys[i][1]}</h3>${D.samples[k].map(r=>`<div><b>${esc(r.business_name)}</b><br><span style="color:var(--mute)">${esc(r.business_address)||"<i>(empty address)</i>"} · ${r.country}</span></div>`).join("")}</div>`).join("")}</div></section>`);
+
+// labels
+const G=D.gt;const mh=g=>Object.fromEntries(Object.entries(g.match_hist).map(([k,v])=>[k=="10"?"10+":k,v]));
+add(`<section id="labels"><h2>Ground truth (train)</h2><p class="sub">A S1 entity matches 0–10+ records across S2/S3. Val is a random slice so its shape mirrors train.</p>
+<div class="grid"><div class="card"><h3>Matches per S1 entity (train)</h3>${bars(mh(G.train),"var(--c1)")}</div>
+<div class="card"><h3>Matches per S1 entity (val)</h3>${bars(mh(G.val),"var(--c2)")}</div>
+<div class="card"><h3>Coverage</h3><table><tr><th></th><th>Train</th><th>Val</th></tr>
+<tr><td>Singletons</td><td>${pct(G.train.singleton_pct)}</td><td>${pct(G.val.singleton_pct)}</td></tr>
+<tr><td>Avg matches</td><td>${G.train.avg_matches.toFixed(2)}</td><td>${G.val.avg_matches.toFixed(2)}</td></tr>
+<tr><td>Avg S2 / S3</td><td>${G.train.avg_s2.toFixed(2)} / ${G.train.avg_s3.toFixed(2)}</td><td>${G.val.avg_s2.toFixed(2)} / ${G.val.avg_s3.toFixed(2)}</td></tr>
+<tr><td>Has ≥1 S2</td><td>${pct(G.train.has_s2)}</td><td>${pct(G.val.has_s2)}</td></tr>
+<tr><td>Has ≥1 S3</td><td>${pct(G.train.has_s3)}</td><td>${pct(G.val.has_s3)}</td></tr>
+<tr><td>In both S2 &amp; S3</td><td>${pct(G.train.both)}</td><td>${pct(G.val.both)}</td></tr></table></div>
+<div class="card"><h3>Orphan records (no S1 match)</h3>${bars({"S2 records":1-G.s2_matched_frac,"S3 records":1-G.s3_matched_frac},"var(--c4)",pct,1)}<p class="sub" style="margin-top:10px">About a quarter of S2/S3 rows belong to no S1 entity — pure distractors.</p></div></div>
+<div class="insight"><b>Metric implication.</b> Only ${pct(G.all.singleton_pct)} are singletons, so most score comes from recall+precision on ~3.5 matches; but F₀.₅ punishes each false merge, so a conservative threshold pays off.</div></section>`);
+
+// pairs
+const P=D.pairs,jl=Array.from({length:10},(_,i)=>(i/10).toFixed(1));
+add(`<section id="pairs"><h2>What true matches look like</h2><p class="sub">Token‑Jaccard similarity of ${fmt(P.n)} sampled true (S1, S2/S3) pairs.</p>
+<div class="grid"><div class="card"><h3>Name similarity of true pairs</h3>${hist([P.name_jac_hist.S2,P.name_jac_hist.S3],jl,["S1↔S2","S1↔S3"])}</div>
+<div class="card"><h3>Address similarity of true pairs</h3>${hist([P.addr_jac_hist.S2,P.addr_jac_hist.S3],jl,["S1↔S2","S1↔S3"])}</div>
+<div class="card"><h3>Mean similarity by country</h3><table><tr><th></th><th>Name</th><th>Addr</th></tr>${Object.keys(P.mean_name_jac).map(k=>`<tr><td>S1↔${k.replace("|"," · ")}</td><td>${P.mean_name_jac[k].toFixed(2)}</td><td>${P.mean_addr_jac[k].toFixed(2)}</td></tr>`).join("")}</table></div>
+<div class="card kpi"><b>${pct(P.exact_name.S2)}</b><span>true S1↔S2 pairs with identical name (S3: ${pct(P.exact_name.S3)})</span><br><br><b>${pct(P.noaddr.S2)}</b><span>true pairs where the S2/S3 address is empty</span></div></div>
+<h3 style="margin-top:24px">Example matched groups</h3><div class="grid">${D.examples.slice(0,4).map(g=>`<div class="card ex">${g.map(r=>`<div><span class="tag s${r.id[1]}">${r.id.slice(0,2)}</span><b>${esc(r.business_name)}</b><br><span style="color:var(--mute)">${esc(r.business_address)||"<i>(empty)</i>"}</span></div>`).join("")}</div>`).join("")}</div></section>`);
+
+// test
+const tc=["US","India","France"];
+add(`<section id="test"><h2>Test set &amp; distribution shift</h2><p class="sub">Test has the same schema but a different country mix and a brand‑new country.</p>
+<div class="grid"><div class="card"><h3>Country mix — S1</h3><div class="legend"><span><i style="background:var(--c1)"></i>train</span><span><i style="background:var(--c2)"></i>test</span></div>${tc.map(c=>`<div class="bar"><span class="l">${c}</span><i style="width:${(S.train_s1.countries[c]||0)/S.train_s1.rows*100}%;background:var(--c1)"></i><span class="v">${pct((S.train_s1.countries[c]||0)/S.train_s1.rows)}</span></div><div class="bar"><span class="l"></span><i style="width:${(S.test_s1.countries[c]||0)/S.test_s1.rows*100}%;background:var(--c2)"></i><span class="v">${pct((S.test_s1.countries[c]||0)/S.test_s1.rows)}</span></div>`).join("")}</div>
+<div class="card"><h3>France (test only)</h3>${["test_s1","test_s2","test_s3"].map((k,i)=>`<p style="margin:4px 0"><b>${fmt(S[k].countries.France)}</b> <span style="color:var(--mute)">${keys[i+3][1]} records</span></p>`).join("")}<p class="sub">Names carry accents (é, ç); addresses use “Boulevard du …”, region names such as Nouvelle‑Aquitaine.</p></div>
+<div class="card"><h3>Test S1 top regions</h3>${bars(S.test_s1.top_regions,"var(--c3)")}</div>
+<div class="card"><h3>Test sample rows (S1)</h3><div class="ex">${D.samples.test_s1.map(r=>`<div><b>${esc(r.business_name)}</b><br><span style="color:var(--mute)">${esc(r.business_address)} · ${r.country}</span></div>`).join("")}</div></div></div></section>`);
+
+// takeaways
+add(`<section id="takeaways"><h2>Key takeaways</h2>
+<div class="insight"><b>Scale.</b> ${fmt(tr)} train and ${fmt(te)} test records — a full S1×S2/S3 cross‑join is impossible; blocking (name tokens/n‑grams, PIN/ZIP, city) is mandatory.</div>
+<div class="insight"><b>Asymmetric noise.</b> S2 has ALL‑CAPS addresses (${pct(S.train_s2.upper_addr)}), S3 does not; S2 has more Devanagari names (${pct(S.train_s2.devanagari_name)} vs ${pct(S.train_s3.devanagari_name)}). Lower‑casing, transliteration and suffix normalisation are needed per source.</div>
+<div class="insight"><b>India is harder.</b> Name similarity of true pairs is markedly lower for India (transliteration) but address similarity is higher for S2 — the two fields carry complementary signal.</div>
+<div class="insight"><b>Repeated names.</b> ${pct(S.train_s1.dup_name_pct)} of S1 names occur more than once (chains/franchises), so name alone is not an identifier — address must disambiguate.</div>
+<div class="insight"><b>Distractors &amp; singletons.</b> ~${pct(1-G.s2_matched_frac)} of S2/S3 rows match nothing and ${pct(G.all.singleton_pct)} of S1 entities are singletons; a precision‑oriented threshold is needed for F₀.₅.</div>
+<div class="insight"><b>Generalise to France.</b> Avoid country‑specific hard‑coding; use language‑agnostic features (char n‑grams, accent folding, embeddings) and add French suffixes (SARL, SAS) and address terms.</div></section>`);
+</script></body></html>
